@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+'''
     inflection
     ~~~~~~~~~~~~
 
@@ -8,373 +8,423 @@
     :copyright: (c) 2012-2015 by Janne Vanhala
 
     :license: MIT, see LICENSE for more details.
-"""
+'''
+import itertools
 import re
-import unicodedata
+from locale import getdefaultlocale
+from operator import itemgetter
+from unicodedata import normalize
 
-__version__ = '0.3.1'
-
-PLURALS = [
-    (r"(?i)(quiz)$", r'\1zes'),
-    (r"(?i)^(oxen)$", r'\1'),
-    (r"(?i)^(ox)$", r'\1en'),
-    (r"(?i)(m|l)ice$", r'\1ice'),
-    (r"(?i)(m|l)ouse$", r'\1ice'),
-    (r"(?i)(matr|vert|ind)(?:ix|ex)$", r'\1ices'),
-    (r"(?i)(x|ch|ss|sh)$", r'\1es'),
-    (r"(?i)([^aeiouy]|qu)y$", r'\1ies'),
-    (r"(?i)(hive)$", r'\1s'),
-    (r"(?i)([lr])f$", r'\1ves'),
-    (r"(?i)([^f])fe$", r'\1ves'),
-    (r"(?i)sis$", 'ses'),
-    (r"(?i)([ti])a$", r'\1a'),
-    (r"(?i)([ti])um$", r'\1a'),
-    (r"(?i)(buffal|potat|tomat)o$", r'\1oes'),
-    (r"(?i)(bu)s$", r'\1ses'),
-    (r"(?i)(alias|status)$", r'\1es'),
-    (r"(?i)(octop|vir)i$", r'\1i'),
-    (r"(?i)(octop|vir)us$", r'\1i'),
-    (r"(?i)^(ax|test)is$", r'\1es'),
-    (r"(?i)s$", 's'),
-    (r"$", 's'),
-]
-
-SINGULARS = [
-    (r"(?i)(database)s$", r'\1'),
-    (r"(?i)(quiz)zes$", r'\1'),
-    (r"(?i)(matr)ices$", r'\1ix'),
-    (r"(?i)(vert|ind)ices$", r'\1ex'),
-    (r"(?i)^(ox)en", r'\1'),
-    (r"(?i)(alias|status)(es)?$", r'\1'),
-    (r"(?i)(octop|vir)(us|i)$", r'\1us'),
-    (r"(?i)^(a)x[ie]s$", r'\1xis'),
-    (r"(?i)(cris|test)(is|es)$", r'\1is'),
-    (r"(?i)(shoe)s$", r'\1'),
-    (r"(?i)(o)es$", r'\1'),
-    (r"(?i)(bus)(es)?$", r'\1'),
-    (r"(?i)(m|l)ice$", r'\1ouse'),
-    (r"(?i)(x|ch|ss|sh)es$", r'\1'),
-    (r"(?i)(m)ovies$", r'\1ovie'),
-    (r"(?i)(s)eries$", r'\1eries'),
-    (r"(?i)([^aeiouy]|qu)ies$", r'\1y'),
-    (r"(?i)([lr])ves$", r'\1f'),
-    (r"(?i)(tive)s$", r'\1'),
-    (r"(?i)(hive)s$", r'\1'),
-    (r"(?i)([^f])ves$", r'\1fe'),
-    (r"(?i)(t)he(sis|ses)$", r"\1hesis"),
-    (r"(?i)(s)ynop(sis|ses)$", r"\1ynopsis"),
-    (r"(?i)(p)rogno(sis|ses)$", r"\1rognosis"),
-    (r"(?i)(p)arenthe(sis|ses)$", r"\1arenthesis"),
-    (r"(?i)(d)iagno(sis|ses)$", r"\1iagnosis"),
-    (r"(?i)(b)a(sis|ses)$", r"\1asis"),
-    (r"(?i)(a)naly(sis|ses)$", r"\1nalysis"),
-    (r"(?i)([ti])a$", r'\1um'),
-    (r"(?i)(n)ews$", r'\1ews'),
-    (r"(?i)(ss)$", r'\1'),
-    (r"(?i)s$", ''),
-]
-
-UNCOUNTABLES = set([
-    'equipment',
-    'fish',
-    'information',
-    'jeans',
-    'money',
-    'rice',
-    'series',
-    'sheep',
-    'species',
-])
+__version__ = '0.4.0'
 
 
-def _irregular(singular, plural):
-    """
-    A convenience function to add appropriate rules to plurals and singular
-    for irregular words.
+def _ci_re(pattern):
+    if isinstance(pattern, re.Pattern):
+        pattern = pattern.pattern
 
-    :param singular: irregular word in singular form
-    :param plural: irregular word in plural form
-    """
-    def caseinsensitive(string):
-        return ''.join('[' + char + char.upper() + ']' for char in string)
+    if pattern.startswith('(?i)'):
+        return _ci_re(pattern[4:])
 
-    if singular[0].upper() == plural[0].upper():
-        PLURALS.insert(0, (
-            r"(?i)(%s)%s$" % (singular[0], singular[1:]),
-            r'\1' + plural[1:]
-        ))
-        PLURALS.insert(0, (
-            r"(?i)(%s)%s$" % (plural[0], plural[1:]),
-            r'\1' + plural[1:]
-        ))
-        SINGULARS.insert(0, (
-            r"(?i)(%s)%s$" % (plural[0], plural[1:]),
-            r'\1' + singular[1:]
-        ))
-    else:
-        PLURALS.insert(0, (
-            r"%s%s$" % (singular[0].upper(), caseinsensitive(singular[1:])),
-            plural[0].upper() + plural[1:]
-        ))
-        PLURALS.insert(0, (
-            r"%s%s$" % (singular[0].lower(), caseinsensitive(singular[1:])),
-            plural[0].lower() + plural[1:]
-        ))
-        PLURALS.insert(0, (
-            r"%s%s$" % (plural[0].upper(), caseinsensitive(plural[1:])),
-            plural[0].upper() + plural[1:]
-        ))
-        PLURALS.insert(0, (
-            r"%s%s$" % (plural[0].lower(), caseinsensitive(plural[1:])),
-            plural[0].lower() + plural[1:]
-        ))
-        SINGULARS.insert(0, (
-            r"%s%s$" % (plural[0].upper(), caseinsensitive(plural[1:])),
-            singular[0].upper() + singular[1:]
-        ))
-        SINGULARS.insert(0, (
-            r"%s%s$" % (plural[0].lower(), caseinsensitive(plural[1:])),
-            singular[0].lower() + singular[1:]
-        ))
+    if pattern.startswith('(?i:') and pattern.endswith(')'):
+        return pattern
+
+    return '(?i:%s)' % (pattern, )
 
 
-def camelize(string, uppercase_first_letter=True):
-    """
-    Convert strings to CamelCase.
+def _as_re(string):
+    string = re.escape(string)
+    string = _ci_re(string)
+    return r'\b%s\Z' % (string, )
 
-    Examples::
 
-        >>> camelize("device_type")
-        "DeviceType"
-        >>> camelize("device_type", False)
-        "deviceType"
+def _match_group(func, n=0):
+    def _match(match):
+        return func(match.group(n))
 
-    :func:`camelize` can be thought of as a inverse of :func:`underscore`,
-    although there are some cases where that does not hold::
+    return _match
 
-        >>> camelize(underscore("IOError"))
-        "IoError"
 
-    :param uppercase_first_letter: if set to `True` :func:`camelize` converts
-        strings to UpperCamelCase. If set to `False` :func:`camelize` produces
-        lowerCamelCase. Defaults to `True`.
-    """
+_match_group_lower = _match_group(str.lower)
+_match_group_upper = _match_group(str.upper)
+
+
+class Inflections(object):
+    __locale_cache = {}
+    __scopes = ('acronyms', 'humans', 'plurals', 'singulars', 'uncountables')
+    __camelize_pattern = r'\A(?:%s(?=\b|[A-Z_])|\w)'
+    __underscore_pattern = r'(?:(?<=([A-Za-z\d]))|\b)(%s)(?=\b|[^a-z])'
+
+    def __init__(self, locale):
+        self.locale = locale
+        self.acronyms = []
+        self.humans = []
+        self.plurals = []
+        self.singulars = []
+        self.uncountables = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    @classmethod
+    def instance(cls, locale=None):
+        if locale is None:
+            locale = getdefaultlocale()[0]
+
+        return cls.__locale_cache.setdefault(locale, cls(locale))
+
+    def clear(self, scope='all'):
+        if scope == 'all':
+            return [self.clear(x) for x in self.__scopes]
+
+        assert scope in self.__scopes, 'Invalid scope!'
+        setattr(self, scope, [])
+
+    def irregular(self, singular, plural):
+        self.countable(singular)
+        self.countable(plural)
+
+        s0, stail = singular[0], singular[1:]
+        p0, ptail = plural[0], plural[1:]
+
+        if s0.upper() == p0.upper():
+            fmt = r'(%s)%s\Z'
+            for x in (singular, plural):
+                pattern = fmt % (x[0], x[1:])
+                pattern = _ci_re(pattern)
+                self.singular(pattern, r'\1' + stail)
+                self.plural(pattern, r'\1' + ptail)
+        else:
+            fmt = r'%s%s\Z'
+            strs = (singular, plural)
+            mods = (str.upper, str.lower)
+            for x, mod in itertools.product(strs, mods):
+                x0, xtail = x[0], x[1:]
+                pattern = fmt % (mod(x0), _ci_re(xtail))
+                self.singular(pattern, mod(s0) + stail)
+                self.plural(pattern, mod(p0) + ptail)
+
+    def acronym(self, word):
+        # sort length descending
+        item = ~len(word), word.lower(), word
+        self.acronyms.append(item)
+        self.acronyms.sort()
+        self.__update_acronym_pattern()
+
+    #region acronym_pattern
+    def __define_acronym_pattern(self):
+        if self.acronyms:
+            items = map(itemgetter(2), self.acronyms)
+            items = map(re.escape, items)
+            rx = r'(?:%s)' % ('|'.join(items), )
+        else:
+            rx = r'(?=a)b'
+
+        self.__acronym_pattern = rx  # type: str
+        return rx
+
+    def __get_acronym_pattern(self):
+        try:
+            return self.__acronym_pattern
+        except AttributeError:
+            return self.__define_acronym_pattern()
+
+    def __update_acronym_pattern(self):
+        try:
+            self.__acronym_pattern
+        except AttributeError:
+            # don't update if we've never generated it
+            pass
+        else:
+            self.__define_acronym_pattern()
+
+    @property
+    def acronym_pattern(self):
+        return self.__get_acronym_pattern()
+
+    @property
+    def acronyms_camelize_pattern(self):
+        return self.__camelize_pattern % (self.__get_acronym_pattern(), )
+
+    @property
+    def acronyms_underscore_pattern(self):
+        return self.__underscore_pattern % (self.__get_acronym_pattern(), )
+    #endregion
+
+    def human(self, rule, replacement):
+        item = rule, replacement
+        self.humans.insert(0, item)
+        return item
+
+    def plural(self, rule, replacement):
+        self.countable(rule)
+        self.countable(replacement)
+
+        item = rule, replacement
+        self.plurals.insert(0, item)
+        return item
+
+    def singular(self, rule, replacement):
+        self.countable(rule)
+        self.countable(replacement)
+
+        item = rule, replacement
+        self.singulars.insert(0, item)
+        return item
+
+    def uncountable(self, word):
+        item = ~len(word), word.lower(), _as_re(word)
+        self.uncountables.append(item)
+        self.uncountables.sort()
+
+    def countable(self, word):
+        _len = len(word)
+        search = word.lower()
+        for idx, (item_len, item_key, _item_re) in enumerate(self.uncountables):
+            if _len < ~item_len:
+                continue
+            if _len == ~item_len and item_key == search:
+                del self.uncountables[idx]
+                return
+            if ~item_len < _len:
+                return
+
+    def is_uncountable(self, word):
+        items = map(itemgetter(2), self.uncountables)
+        items = map(re.match, items, itertools.repeat(word))
+        return any(items)
+
+    def apply_inflections(self, word, rules, apply_uncountable=True):
+        if not word or apply_uncountable and self.is_uncountable(word):
+            return word
+
+        for rule, replacement in rules:
+            word, matches = re.subn(rule, replacement, word, 1)
+            if matches:
+                break
+
+        return word
+
+    def lookup_acronym(self, term):
+        term = str(term).lower()
+        term_len = len(term)
+        for _len, key, word in self.acronyms:
+            if term_len < _len:
+                continue
+            if term_len == _len and term == key:
+                return word
+            if _len < term_len:
+                return None
+
+
+def pluralize(word, locale=None):
+    inst = Inflections.instance(locale)
+    return inst.apply_inflections(word, inst.plurals)
+
+
+def singularize(word, locale=None):
+    inst = Inflections.instance(locale)
+    return inst.apply_inflections(word, inst.singulars)
+
+
+def camelize(string, uppercase_first_letter=True, locale=None):
+    inst = Inflections.instance(locale)
+
+    def cap(text):
+        return inst.lookup_acronym(text) or text.capitalize()
+
+    def hump(match):
+        m0 = match.group(1)
+        mtail = cap(match.group(2))
+        return m0 + mtail
+
     if uppercase_first_letter:
-        return re.sub(r"(?:^|_)(.)", lambda m: m.group(1).upper(), string)
+        string = re.sub(r'^[a-z\d]*', _match_group(cap), string, 1)
     else:
-        return string[0].lower() + camelize(string)[1:]
+        string = re.sub(inst.acronyms_camelize_pattern, _match_group_lower, string, 1)
+
+    string = re.sub(_ci_re(r'(?:_|(\/))([a-z\d]*)'), hump, string)
+    return string
+
+
+def underscore(string, locale=None):
+    inst = Inflections.instance(locale)
+
+    def part(match):
+        m0 = match.group(1) or '_'
+        mtail = match.group(2).lower()
+        return m0 + mtail
+
+    string = re.sub(inst.acronyms_underscore_pattern, part, string)
+    string = re.sub(r'([A-Z\d]+)([A-Z][a-z])', r'\1_\2', string)
+    string = re.sub(r'([a-z\d])([A-Z])', r'\1_\2', string)
+    string = string.replace('-', '_')
+    return string.lower()
+
+
+def humanize(string, capitalize=True, keep_id_suffix=False, locale=None):
+    inst = Inflections.instance(locale)
+
+    def lower(match):
+        res = match.group().lower()
+        return inst.lookup_acronym(res) or res
+
+    string = inst.apply_inflections(string, inst.humans, False)
+    string = re.sub(r'\A_+', '', string, 1)
+    if not keep_id_suffix:
+        string = re.sub(r'_id\Z', '', string)
+
+    string = string.replace('_', ' ')
+    string = re.sub(_ci_re(r'([a-z\d]*)'), lower, string)
+    if capitalize:
+        string = upcase_first(string)
+
+    return string
+
+
+def upcase_first(string):
+    return re.sub(r'\A\w', _match_group_upper, string, 1)
+
+
+def titleize(string, keep_id_suffix=False, locale=None):
+    string = underscore(string, locale)
+    string = humanize(string, True, keep_id_suffix, locale)
+    string = re.sub(r'\b(?<!\w[\'’`])[a-z]', _match_group_upper, string)
+    return string
+
+
+def tableize(string, locale=None):
+    string = underscore(string, locale)
+    string = pluralize(string, locale)
+    return string
+
+
+def classify(string, locale=None):
+    string = re.sub(r'.*\.', '', string)
+    string = singularize(string, locale)
+    string = camelize(string, True, locale)
+    return string
 
 
 def dasherize(word):
-    """Replace underscores with dashes in the string.
+    '''Replace underscores with dashes in the string.
 
     Example::
 
-        >>> dasherize("puni_puni")
-        "puni-puni"
+        >>> dasherize('puni_puni')
+        'puni-puni'
 
-    """
+    '''
     return word.replace('_', '-')
 
 
-def humanize(word):
-    """
-    Capitalize the first word and turn underscores into spaces and strip a
-    trailing ``"_id"``, if any. Like :func:`titleize`, this is meant for
-    creating pretty output.
+def demodulize(string, separator='.'):
+    # ruby version splits on ::, but I figured python would rather .
+    try:
+        idx = string.rindex(separator)
+    except ValueError:
+        return string
+    else:
+        return string[idx+len(separator):]
 
-    Examples::
 
-        >>> humanize("employee_salary")
-        "Employee salary"
-        >>> humanize("author_id")
-        "Author"
+def deconstantize(string, separator='.'):
+    try:
+        idx = string.rindex(separator)
+    except ValueError:
+        return ''
+    else:
+        return string[:idx]
 
-    """
-    word = re.sub(r"_id$", "", word)
-    word = word.replace('_', ' ')
-    word = re.sub(r"(?i)([a-z\d]*)", lambda m: m.group(1).lower(), word)
-    word = re.sub(r"^\w", lambda m: m.group(0).upper(), word)
-    return word
+
+def foreign_key(string, separate_class_name_and_id_with_underscore=True, locale=None):
+    string = demodulize(string)
+    string = underscore(string, locale)
+    if separate_class_name_and_id_with_underscore:
+        string = string + '_'
+    string = string + 'id'
+    return string
 
 
 def ordinal(number):
-    """
+    '''
     Return the suffix that should be added to a number to denote the position
     in an ordered sequence such as 1st, 2nd, 3rd, 4th.
 
     Examples::
 
         >>> ordinal(1)
-        "st"
+        'st'
         >>> ordinal(2)
-        "nd"
+        'nd'
         >>> ordinal(1002)
-        "nd"
+        'nd'
         >>> ordinal(1003)
-        "rd"
+        'rd'
         >>> ordinal(-11)
-        "th"
+        'th'
         >>> ordinal(-1021)
-        "st"
+        'st'
 
-    """
+    '''
     number = abs(int(number))
     if number % 100 in (11, 12, 13):
-        return "th"
+        return 'th'
     else:
         return {
-            1: "st",
-            2: "nd",
-            3: "rd",
-        }.get(number % 10, "th")
+            1: 'st',
+            2: 'nd',
+            3: 'rd',
+        }.get(number % 10, 'th')
 
 
 def ordinalize(number):
-    """
+    '''
     Turn a number into an ordinal string used to denote the position in an
     ordered sequence such as 1st, 2nd, 3rd, 4th.
 
     Examples::
 
         >>> ordinalize(1)
-        "1st"
+        '1st'
         >>> ordinalize(2)
-        "2nd"
+        '2nd'
         >>> ordinalize(1002)
-        "1002nd"
+        '1002nd'
         >>> ordinalize(1003)
-        "1003rd"
+        '1003rd'
         >>> ordinalize(-11)
-        "-11th"
+        '-11th'
         >>> ordinalize(-1021)
-        "-1021st"
+        '-1021st'
 
-    """
-    return "%s%s" % (number, ordinal(number))
+    '''
+    return '%s%s' % (number, ordinal(number))
 
 
-def parameterize(string, separator='-'):
-    """
-    Replace special characters in a string so that it may be used as part of a
-    'pretty' URL.
-
-    Example::
-
-        >>> parameterize(u"Donald E. Knuth")
-        'donald-e-knuth'
-
-    """
+def parameterize(string, separator='-', preserve_case=False):
     string = transliterate(string)
-    # Turn unwanted chars into the separator
-    string = re.sub(r"(?i)[^a-z0-9\-_]+", separator, string)
+    string = re.sub(_ci_re(r'[^a-z0-9_-]+'), separator, string)
+
     if separator:
-        re_sep = re.escape(separator)
-        # No more than one of the separator in a row.
-        string = re.sub(r'%s{2,}' % re_sep, separator, string)
-        # Remove leading/trailing separator.
-        string = re.sub(r"(?i)^%(sep)s|%(sep)s$" % {'sep': re_sep}, '', string)
+        # wrap sep in a group to allow multi-len separator ':='
+        # why you'd do that isn't really clear
+        sep_re = '(?:%s)' % (re.escape(separator), )
+        duplicate_sep_re = r'%s{2,}' % (sep_re, )
+        leading_trailing_sep_re = r'^%s|%s$' % (sep_re, sep_re)
+        string = re.sub(duplicate_sep_re, separator, string)
+        string = re.sub(leading_trailing_sep_re, '', string)
 
-    return string.lower()
+    if not preserve_case:
+        string = string.lower()
 
-
-def pluralize(word):
-    """
-    Return the plural form of a word.
-
-    Examples::
-
-        >>> pluralize("post")
-        "posts"
-        >>> pluralize("octopus")
-        "octopi"
-        >>> pluralize("sheep")
-        "sheep"
-        >>> pluralize("CamelOctopus")
-        "CamelOctopi"
-
-    """
-    if not word or word.lower() in UNCOUNTABLES:
-        return word
-    else:
-        for rule, replacement in PLURALS:
-            if re.search(rule, word):
-                return re.sub(rule, replacement, word)
-        return word
-
-
-def singularize(word):
-    """
-    Return the singular form of a word, the reverse of :func:`pluralize`.
-
-    Examples::
-
-        >>> singularize("posts")
-        "post"
-        >>> singularize("octopi")
-        "octopus"
-        >>> singularize("sheep")
-        "sheep"
-        >>> singularize("word")
-        "word"
-        >>> singularize("CamelOctopi")
-        "CamelOctopus"
-
-    """
-    for inflection in UNCOUNTABLES:
-        if re.search(r'(?i)\b(%s)\Z' % inflection, word):
-            return word
-
-    for rule, replacement in SINGULARS:
-        if re.search(rule, word):
-            return re.sub(rule, replacement, word)
-    return word
-
-
-def tableize(word):
-    """
-    Create the name of a table like Rails does for models to table names. This
-    method uses the :func:`pluralize` method on the last word in the string.
-
-    Examples::
-
-        >>> tableize('RawScaledScorer')
-        "raw_scaled_scorers"
-        >>> tableize('egg_and_ham')
-        "egg_and_hams"
-        >>> tableize('fancyCategory')
-        "fancy_categories"
-    """
-    return pluralize(underscore(word))
-
-
-def titleize(word):
-    """
-    Capitalize all the words and replace some characters in the string to
-    create a nicer looking title. :func:`titleize` is meant for creating pretty
-    output.
-
-    Examples::
-
-      >>> titleize("man from the boondocks")
-      "Man From The Boondocks"
-      >>> titleize("x-men: the last stand")
-      "X Men: The Last Stand"
-      >>> titleize("TheManWithoutAPast")
-      "The Man Without A Past"
-      >>> titleize("raiders_of_the_lost_ark")
-      "Raiders Of The Lost Ark"
-
-    """
-    return re.sub(
-        r"\b('?[a-z])",
-        lambda match: match.group(1).capitalize(),
-        humanize(underscore(word))
-    )
+    return string
 
 
 def transliterate(string):
-    """
+    '''
     Replace non-ASCII characters with an ASCII approximation. If no
     approximation exists, the non-ASCII character is ignored. The string must
     be ``unicode``.
@@ -386,38 +436,105 @@ def transliterate(string):
         >>> transliterate(u'Ærøskøbing')
         u'rskbing'
 
-    """
-    normalized = unicodedata.normalize('NFKD', string)
+    '''
+    normalized = normalize('NFKD', string)
     return normalized.encode('ascii', 'ignore').decode('ascii')
 
 
-def underscore(word):
-    """
-    Make an underscored, lowercase form from the expression in the string.
+with Inflections.instance('en_US') as inst:
+    inst.acronym('GNU')
+    inst.acronym('HTTP')
+    inst.acronym('I18N')
+    inst.acronym('JSON')
+    inst.acronym('L10N')
+    inst.acronym('NaN')
+    inst.acronym('PCIe')
+    inst.acronym('PoE')
+    inst.acronym('PPPoA')
+    inst.acronym('PPPoE')
+    inst.acronym('QoS')
+    inst.acronym('REST')
+    inst.acronym('RESTful')
+    inst.acronym('RSS')
+    inst.acronym('SOAP')
+    inst.acronym('VoIP')
+    inst.acronym('WebDAV')
+    inst.acronym('WiFi')
+    inst.acronym('WinRT')
+    inst.acronym('XML')
+    inst.acronym('XMLRPC')
+    inst.acronym('YAML')
 
-    Example::
+    from string import ascii_uppercase
+    for c in ascii_uppercase:
+        inst.acronym(c + 'aaS')
 
-        >>> underscore("DeviceType")
-        "device_type"
+    inst.plural(_ci_re(r'$'), r's')
+    inst.plural(_ci_re(r's$'), r's')
+    inst.plural(_ci_re(r'^(ax|test)is$'), r'\1es')
+    inst.plural(_ci_re(r'(octop|vir)us$'), r'\1i')
+    inst.plural(_ci_re(r'(octop|vir)i$'), r'\1i')
+    inst.plural(_ci_re(r'(alias|status)$'), r'\1es')
+    inst.plural(_ci_re(r'(bu)s$'), r'\1ses')
+    inst.plural(_ci_re(r'(buffal|potat|tomat)o$'), r'\1oes')
+    inst.plural(_ci_re(r'([ti])um$'), r'\1a')
+    inst.plural(_ci_re(r'([ti])a$'), r'\1a')
+    inst.plural(_ci_re(r'sis$'), r'ses')
+    inst.plural(_ci_re(r'(?:([^f])fe|([lr])f)$'), r'\1\2ves')
+    inst.plural(_ci_re(r'(hive)$'), r'\1s')
+    inst.plural(_ci_re(r'([^aeiouy]|qu)y$'), r'\1ies')
+    inst.plural(_ci_re(r'(x|ch|ss|sh)$'), r'\1es')
+    inst.plural(_ci_re(r'(matr|vert|ind)(?:ix|ex)$'), r'\1ices')
+    inst.plural(_ci_re(r'^(m|l)ouse$'), r'\1ice')
+    inst.plural(_ci_re(r'^(m|l)ice$'), r'\1ice')
+    inst.plural(_ci_re(r'^(ox)$'), r'\1en')
+    inst.plural(_ci_re(r'^(oxen)$'), r'\1')
+    inst.plural(_ci_re(r'(quiz)$'), r'\1zes')
 
-    As a rule of thumb you can think of :func:`underscore` as the inverse of
-    :func:`camelize`, though there are cases where that does not hold::
+    inst.singular(_ci_re(r's$'), r'')
+    inst.singular(_ci_re(r'(ss)$'), r'\1')
+    inst.singular(_ci_re(r'(n)ews$'), r'\1ews')
+    inst.singular(_ci_re(r'([ti])a$'), r'\1um')
+    inst.singular(_ci_re(r'((a)naly|(b)a|(d)iagno|(p)arenthe|(p)rogno|(s)ynop|(t)he)(sis|ses)$'), r'\1sis')
+    inst.singular(_ci_re(r'(^analy)(sis|ses)$'), r'\1sis')
+    inst.singular(_ci_re(r'([^f])ves$'), r'\1fe')
+    inst.singular(_ci_re(r'(hive)s$'), r'\1')
+    inst.singular(_ci_re(r'(tive)s$'), r'\1')
+    inst.singular(_ci_re(r'([lr])ves$'), r'\1f')
+    inst.singular(_ci_re(r'([^aeiouy]|qu)ies$'), r'\1y')
+    inst.singular(_ci_re(r'(s)eries$'), r'\1eries')
+    inst.singular(_ci_re(r'(m)ovies$'), r'\1ovie')
+    inst.singular(_ci_re(r'(x|ch|ss|sh)es$'), r'\1')
+    inst.singular(_ci_re(r'^(m|l)ice$'), r'\1ouse')
+    inst.singular(_ci_re(r'(bus)(es)?$'), r'\1')
+    inst.singular(_ci_re(r'(o)es$'), r'\1')
+    inst.singular(_ci_re(r'(shoe)s$'), r'\1')
+    inst.singular(_ci_re(r'(cris|test)(is|es)$'), r'\1is')
+    inst.singular(_ci_re(r'^(a)x[ie]s$'), r'\1xis')
+    inst.singular(_ci_re(r'(octop|vir)(us|i)$'), r'\1us')
+    inst.singular(_ci_re(r'(alias|status)(es)?$'), r'\1')
+    inst.singular(_ci_re(r'^(ox)en'), r'\1')
+    inst.singular(_ci_re(r'(vert|ind)ices$'), r'\1ex')
+    inst.singular(_ci_re(r'(matr)ices$'), r'\1ix')
+    inst.singular(_ci_re(r'(quiz)zes$'), r'\1')
+    inst.singular(_ci_re(r'(database)s$'), r'\1')
 
-        >>> camelize(underscore("IOError"))
-        "IoError"
+    inst.irregular('child', 'children')
+    inst.irregular('cow', 'kine')
+    inst.irregular('human', 'humans')
+    inst.irregular('man', 'men')
+    inst.irregular('move', 'moves')
+    inst.irregular('person', 'people')
+    inst.irregular('sex', 'sexes')
+    inst.irregular('zombie', 'zombies')
 
-    """
-    word = re.sub(r"([A-Z]+)([A-Z][a-z])", r'\1_\2', word)
-    word = re.sub(r"([a-z\d])([A-Z])", r'\1_\2', word)
-    word = word.replace("-", "_")
-    return word.lower()
-
-
-_irregular('person', 'people')
-_irregular('man', 'men')
-_irregular('human', 'humans')
-_irregular('child', 'children')
-_irregular('sex', 'sexes')
-_irregular('move', 'moves')
-_irregular('cow', 'kine')
-_irregular('zombie', 'zombies')
+    inst.uncountable('equipment')
+    inst.uncountable('fish')
+    inst.uncountable('information')
+    inst.uncountable('jeans')
+    inst.uncountable('money')
+    inst.uncountable('police')
+    inst.uncountable('rice')
+    inst.uncountable('series')
+    inst.uncountable('sheep')
+    inst.uncountable('species')
