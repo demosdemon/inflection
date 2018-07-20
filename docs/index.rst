@@ -31,8 +31,16 @@ API Documentation
 
 .. module:: inflection
 
+.. autoclass:: Inflections
+    :members:
+    :undoc-members:
+
 .. autofunction:: camelize
+.. autofunction:: classify
 .. autofunction:: dasherize
+.. autofunction:: deconstantize
+.. autofunction:: demodulize
+.. autofunction:: foreign_key
 .. autofunction:: humanize
 .. autofunction:: ordinal
 .. autofunction:: ordinalize
@@ -43,10 +51,9 @@ API Documentation
 .. autofunction:: titleize
 .. autofunction:: transliterate
 .. autofunction:: underscore
-
+.. autofunction:: upcase_first
 
 .. include:: ../CHANGES.rst
-
 
 License
 -------

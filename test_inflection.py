@@ -270,6 +270,9 @@ STRING_TO_TABLEIZE = (
     ("_RecipeIngredient", "_recipe_ingredients"),
 )
 
+UNCOUNTABLES = [
+    'equipment', 'fish', 'information', 'jeans', 'money', 'police', 'rice', 'series', 'sheep', 'species'
+]
 
 def test_pluralize_plurals():
     assert "plurals" == inflection.pluralize("plurals")
@@ -282,7 +285,7 @@ def test_pluralize_empty_string():
 
 @pytest.mark.parametrize(
     ("word", ),
-    [(word,) for word in inflection.UNCOUNTABLES]
+    [(word,) for word in UNCOUNTABLES]
 )
 def test_uncountability(word):
     assert word == inflection.singularize(word)
@@ -294,7 +297,8 @@ def test_uncountable_word_is_not_greedy():
     uncountable_word = "ors"
     countable_word = "sponsor"
 
-    inflection.UNCOUNTABLES.add(uncountable_word)
+    inst = inflection.Inflections.instance()
+    inst.uncountable(uncountable_word)
     try:
         assert uncountable_word == inflection.singularize(uncountable_word)
         assert uncountable_word == inflection.pluralize(uncountable_word)
@@ -310,7 +314,7 @@ def test_uncountable_word_is_not_greedy():
             inflection.singularize(inflection.pluralize(countable_word))
         )
     finally:
-        inflection.UNCOUNTABLES.remove(uncountable_word)
+        inst.countable(uncountable_word)
 
 
 @pytest.mark.parametrize(("singular", "plural"), SINGULAR_TO_PLURAL)

@@ -19,15 +19,6 @@ __version__ = '0.4.0'
 
 
 def _ci_re(pattern):
-    if isinstance(pattern, re.Pattern):
-        pattern = pattern.pattern
-
-    if pattern.startswith('(?i)'):
-        return _ci_re(pattern[4:])
-
-    if pattern.startswith('(?i:') and pattern.endswith(')'):
-        return pattern
-
     return '(?i:%s)' % (pattern, )
 
 
@@ -37,18 +28,45 @@ def _as_re(string):
     return r'\b%s\Z' % (string, )
 
 
-def _match_group(func, n=0):
+def _transform_group(func, group=0):
     def _match(match):
-        return func(match.group(n))
+        s = match.group(group)
+        return func(s)
 
     return _match
 
 
-_match_group_lower = _match_group(str.lower)
-_match_group_upper = _match_group(str.upper)
+_match_group_lower = _transform_group(str.lower)
+_match_group_upper = _transform_group(str.upper)
 
 
 class Inflections(object):
+    '''.. class:: Inflections(locale : str)
+
+    A singleton instance of this class is yielded by :meth:`Inflections.instance`,
+    which can then be used to specify additional inflection rules. If passed an
+    optional locale, rules for other languages can be specified. The default
+    locale is derrived from :func:`locale.getdefaultlocale`. Only rules for English
+    are provided. This class implements the context manager protocol so it can
+    be used in `with` blocks.
+
+        >>> with Inflections.instance('en_US') as inst:
+        ...     inst.acronym('HTTP')
+        ...
+        ...     inst.plural(_ci_re(r'^(ox)$'), r'\\1en')
+        ...     inst.singular(_ci_re(r'^(ox)en'), r'\\1')
+        ...
+        ...     inst.irregular('octopus', 'octopi')
+        ...
+        ...     inst.uncountable('equipment')
+
+    New rules are added at the top. So in the example above, the irregular rule
+    for octopus will now be the first of the pluralization and singularization
+    rules that is run. This guarantees that your rules run before any of the
+    rules that may already have been pre-loaded.
+
+    :param str locale: The localization this object represents.
+    '''
     __locale_cache = {}
     __scopes = ('acronyms', 'humans', 'plurals', 'singulars', 'uncountables')
     __camelize_pattern = r'\A(?:%s(?=\b|[A-Z_])|\w)'
@@ -70,12 +88,30 @@ class Inflections(object):
 
     @classmethod
     def instance(cls, locale=None):
+        '''.. method:: instance([locale : str]) -> Inflections
+
+        Fetch a singleton instance of the `Inflections` collection for the
+        specified locale.
+
+        :param str locale: The binding localization; if not provided, defaults to
+            :func:`locale.getdefaultlocale`.
+        :returns: A singleton instance of the `Inflections` collection.
+        :rtype: inflection.Inflections
+        '''
         if locale is None:
             locale = getdefaultlocale()[0]
 
         return cls.__locale_cache.setdefault(locale, cls(locale))
 
     def clear(self, scope='all'):
+        '''.. method:: clear([scope : str])
+
+        Clear this instance's lists. You may specify a scope, one of `acronyms`,
+        `humans`, `plurals`, `singulars`, `uncountables`, and `all`. If not provided,
+        defaults to `all`.
+
+        :param str scope: The scope to clear.
+        '''
         if scope == 'all':
             return [self.clear(x) for x in self.__scopes]
 
@@ -83,6 +119,10 @@ class Inflections(object):
         setattr(self, scope, [])
 
     def irregular(self, singular, plural):
+        '''.. method(singular : str, plural : str)
+
+        Add an irregular inflection case.
+        '''
         self.countable(singular)
         self.countable(plural)
 
@@ -106,10 +146,12 @@ class Inflections(object):
                 self.singular(pattern, mod(s0) + stail)
                 self.plural(pattern, mod(p0) + ptail)
 
-    def acronym(self, word):
-        # sort length descending
-        item = ~len(word), word.lower(), word
-        self.acronyms.append(item)
+    def acronym(self, *words):
+        def _map(word):
+            # sort length descending
+            return ~len(word), word.lower(), word
+
+        self.acronyms.extend(map(_map, words))
         self.acronyms.sort()
         self.__update_acronym_pattern()
 
@@ -151,6 +193,7 @@ class Inflections(object):
     @property
     def acronyms_underscore_pattern(self):
         return self.__underscore_pattern % (self.__get_acronym_pattern(), )
+
     #endregion
 
     def human(self, rule, replacement):
@@ -174,9 +217,11 @@ class Inflections(object):
         self.singulars.insert(0, item)
         return item
 
-    def uncountable(self, word):
-        item = ~len(word), word.lower(), _as_re(word)
-        self.uncountables.append(item)
+    def uncountable(self, *words):
+        def _map(word):
+            return ~len(word), word.lower(), _as_re(word)
+
+        self.uncountables.extend(map(_map, words))
         self.uncountables.sort()
 
     def countable(self, word):
@@ -193,7 +238,7 @@ class Inflections(object):
 
     def is_uncountable(self, word):
         items = map(itemgetter(2), self.uncountables)
-        items = map(re.match, items, itertools.repeat(word))
+        items = map(re.search, items, itertools.repeat(word))
         return any(items)
 
     def apply_inflections(self, word, rules, apply_uncountable=True):
@@ -236,12 +281,12 @@ def camelize(string, uppercase_first_letter=True, locale=None):
         return inst.lookup_acronym(text) or text.capitalize()
 
     def hump(match):
-        m0 = match.group(1)
+        m0 = match.group(1) or ''
         mtail = cap(match.group(2))
         return m0 + mtail
 
     if uppercase_first_letter:
-        string = re.sub(r'^[a-z\d]*', _match_group(cap), string, 1)
+        string = re.sub(r'^[a-z\d]*', _transform_group(cap), string, 1)
     else:
         string = re.sub(inst.acronyms_camelize_pattern, _match_group_lower, string, 1)
 
@@ -327,7 +372,7 @@ def demodulize(string, separator='.'):
     except ValueError:
         return string
     else:
-        return string[idx+len(separator):]
+        return string[idx + len(separator):]
 
 
 def deconstantize(string, separator='.'):
@@ -442,28 +487,10 @@ def transliterate(string):
 
 
 with Inflections.instance('en_US') as inst:
-    inst.acronym('GNU')
-    inst.acronym('HTTP')
-    inst.acronym('I18N')
-    inst.acronym('JSON')
-    inst.acronym('L10N')
-    inst.acronym('NaN')
-    inst.acronym('PCIe')
-    inst.acronym('PoE')
-    inst.acronym('PPPoA')
-    inst.acronym('PPPoE')
-    inst.acronym('QoS')
-    inst.acronym('REST')
-    inst.acronym('RESTful')
-    inst.acronym('RSS')
-    inst.acronym('SOAP')
-    inst.acronym('VoIP')
-    inst.acronym('WebDAV')
-    inst.acronym('WiFi')
-    inst.acronym('WinRT')
-    inst.acronym('XML')
-    inst.acronym('XMLRPC')
-    inst.acronym('YAML')
+    inst.acronym(
+        'GNU', 'HTTP', 'I18N', 'JSON', 'L10N', 'NaN', 'PCIe', 'PoE', 'PPPoA', 'PPPoE', 'QoS', 'REST', 'RESTful', 'RSS',
+        'SOAP', 'VoIP', 'WebDAV', 'WiFi', 'WinRT', 'XML', 'XMLRPC', 'YAML'
+    )
 
     from string import ascii_uppercase
     for c in ascii_uppercase:
@@ -519,22 +546,15 @@ with Inflections.instance('en_US') as inst:
     inst.singular(_ci_re(r'(quiz)zes$'), r'\1')
     inst.singular(_ci_re(r'(database)s$'), r'\1')
 
-    inst.irregular('child', 'children')
-    inst.irregular('cow', 'kine')
-    inst.irregular('human', 'humans')
-    inst.irregular('man', 'men')
-    inst.irregular('move', 'moves')
-    inst.irregular('person', 'people')
-    inst.irregular('sex', 'sexes')
     inst.irregular('zombie', 'zombies')
+    inst.irregular('sex', 'sexes')
+    inst.irregular('person', 'people')
+    inst.irregular('move', 'moves')
+    inst.irregular('man', 'men')
+    inst.irregular('human', 'humans')
+    inst.irregular('cow', 'kine')
+    inst.irregular('child', 'children')
 
-    inst.uncountable('equipment')
-    inst.uncountable('fish')
-    inst.uncountable('information')
-    inst.uncountable('jeans')
-    inst.uncountable('money')
-    inst.uncountable('police')
-    inst.uncountable('rice')
-    inst.uncountable('series')
-    inst.uncountable('sheep')
-    inst.uncountable('species')
+    inst.uncountable(
+        'equipment', 'fish', 'information', 'jeans', 'money', 'police', 'rice', 'series', 'sheep', 'species'
+    )

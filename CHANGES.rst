@@ -3,8 +3,23 @@ Changelog
 
 Here you can see the full list of changes between each Inflection release.
 
+0.4.0 (pending)
+^^^^^^^^^^^^^^^
+- Updated module to be in parity with the ruby module:
+- Added l10n
+- Added acronyms
+- Added custom humanizations
+- Added :class:`inflection.Inflections` with predefined inflections for 'en_US'
+  locale
+- Added :func:`inflection.classify`
+- Added :func:`inflection.deconstantize`
+- Added :func:`inflection.demodulize`
+- Added :func:`inflection.foreign_key`
+- Added :func:`inflection.upcase_first`
+
+
 0.3.1 (May 3, 2015)
-^^^^^^^^^^^^^^^^^^^
++++++++++++++++++++
 
 - Fixed trove classifiers not showing up on PyPI.
 - Fixed "human" pluralized as "humen" and not "humans".
